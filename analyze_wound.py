@@ -5,7 +5,6 @@ from flask import render_template
 import os
 import cv2
 import numpy as np
-import tensorflow as tf
 import matplotlib.pyplot as plt
 from fpdf import FPDF
 import time
@@ -123,8 +122,8 @@ def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, 
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0
 
     # Explicitly resize for model input
-    img_resized = tf.image.resize(img_rgb, (128, 128), method='bilinear')
-    img_resized = tf.expand_dims(img_resized, 0)  # Add batch dimension
+    img_resized = cv2.resize(img_rgb, (128, 128))
+    img_resized = np.expand_dims(img_resized, 0)  # Add batch dimension
     if img_resized.shape != (1, 128, 128, 3):
         raise ValueError(f"Resized image shape {img_resized.shape} does not match expected shape (1, 128, 128, 3)")
 
@@ -142,12 +141,12 @@ def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, 
     unet_mask = (unet_pred > 0.5).astype(np.uint8)
 
     medsam_mask = medsam_segment(img_rgb, medsam_model)
-    medsam_mask = tf.image.resize(medsam_mask[..., None], (128, 128), method='nearest').numpy().squeeze().astype(np.uint8)
+    medsam_mask = cv2.resize(medsam_mask, (128, 128)).astype(np.uint8)
 
     combined_mask = np.logical_or(unet_mask, medsam_mask).astype(np.uint8)
 
     # Resize mask back to original size
-    pred_mask_resized = tf.image.resize(combined_mask[..., None], img_rgb.shape[:2], method='nearest').numpy().squeeze().astype(np.uint8)
+    pred_mask_resized = cv2.resize(combined_mask, img_rgb.shape[:2][::-1]).astype(np.uint8)
 
     # Clinical analysis
     severity, healing_potential, wound_area_mm2 = predict_healing_potential(pred_mask_resized, img_rgb)
