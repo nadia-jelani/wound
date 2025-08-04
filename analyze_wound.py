@@ -29,7 +29,10 @@ if not os.path.exists(MEDSAM_MODEL_PATH):
 model = build_unet(input_shape=(128, 128, 3))
 model.load_weights(UNET_MODEL_PATH)
 
-def create_visualization(image, pred_mask, output_path):
+from utils import create_visualization, calculate_wound_metrics, ensure_directory
+
+def create_visualization_wrapper(image, pred_mask, output_path):
+    """Wrapper for the original create_visualization function"""
     img_rgb = (image * 255).astype(np.uint8) if image.max() <= 1.0 else image.copy()
     contours, _ = cv2.findContours(pred_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contour_img = img_rgb.copy()
@@ -53,13 +56,14 @@ def create_visualization(image, pred_mask, output_path):
     plt.close()
 
 def generate_patient_report(image, pred_mask, patient_info, severity, healing_potential, wound_area_mm2, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
+    ensure_directory(output_dir)
     # Check write permissions
     if not os.access(output_dir, os.W_OK):
         raise PermissionError(f"No write permissions for output directory: {output_dir}")
 
-    wound_area_px = np.sum(pred_mask > 0)
-    estimated_diameter = np.sqrt(wound_area_px / np.pi) * 0.264
+    # Calculate wound metrics using utility function
+    metrics = calculate_wound_metrics(pred_mask, scale_mm_per_pixel=0.264)
+    estimated_diameter = metrics['diameter_mm']
     wound_description = f"""
     Wound Description:
     - Size: The wound is about {estimated_diameter:.2f} millimeters wide, roughly {'smaller than a US dime' if estimated_diameter < 18 else 'about the size of a US dime' if estimated_diameter < 22 else 'larger than a US dime'}.
@@ -91,7 +95,7 @@ def generate_patient_report(image, pred_mask, patient_info, severity, healing_po
         pdf.multi_cell(0, 10, line.strip().encode('latin-1', 'replace').decode('latin-1'))
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     vis_path = os.path.join(output_dir, f"wound_vis_{timestamp}.png")
-    create_visualization(image, pred_mask, vis_path)
+    create_visualization_wrapper(image, pred_mask, vis_path)
     pdf.ln(10)
     pdf.image(vis_path, x=10, w=190)
     pdf.ln(10)
@@ -101,7 +105,7 @@ def generate_patient_report(image, pred_mask, patient_info, severity, healing_po
     return report_path, vis_path
 
 def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, output_dir='analysis_output'):
-    os.makedirs(output_dir, exist_ok=True)
+    ensure_directory(output_dir)
 
     # Load image
     img = cv2.imread(image_path)
@@ -226,6 +230,18 @@ def upload():
 @app.route("/")
 def index():
     return render_template("wound-wisperer.html")
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "models_loaded": {
+            "unet": os.path.exists(UNET_MODEL_PATH),
+            "medsam": os.path.exists(MEDSAM_MODEL_PATH)
+        }
+    })
 
 if __name__ == "__main__":
     app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)

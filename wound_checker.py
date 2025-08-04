@@ -9,19 +9,20 @@ import matplotlib.pyplot as plt
 import logging
 from datetime import datetime
 import cv2
+from config import *
+from utils import setup_logging, normalize_image, ensure_directory
 import torch
 from torchvision import transforms
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
+logger = setup_logging(LOG_FILE, LOG_LEVEL)
 
 # Configuration
-MODEL_DIR = '/Users/nadiajelani/projects/wound-segmentation/models'
-CLASSIFIER_PATH = os.path.join(MODEL_DIR, 'wound_classifier.h5')  # ResNet50
-UNET_PATH = os.path.join(MODEL_DIR, 'best_unet_wound_model.h5')  # U-Net
-MEDSAM_PATH = os.path.join(MODEL_DIR, 'best_medsam_wound_model.pth')  # MedSAM
-IMG_HEIGHT, IMG_WIDTH = 224, 224
+MODEL_DIR = MODEL_SAVE_PATH
+CLASSIFIER_PATH = CLASSIFIER_MODEL_PATH  # ResNet50
+UNET_PATH = UNET_MODEL_PATH  # U-Net
+MEDSAM_PATH = MEDSAM_MODEL_PATH  # MedSAM
+IMG_HEIGHT, IMG_WIDTH = IMG_SIZE, IMG_SIZE
 UNET_INPUT_SIZE = (256, 256)  # Common U-Net input size
 MEDSAM_INPUT_SIZE = (1024, 1024)  # Typical MedSAM input size
 THRESHOLD = 0.5
@@ -51,7 +52,7 @@ def preprocess_image(image_path, target_size=(IMG_HEIGHT, IMG_WIDTH)):
     """Preprocess the image for classification or segmentation."""
     try:
         img = load_img(image_path, target_size=target_size)
-        img_array = img_to_array(img) / 255.0
+        img_array = normalize_image(img_to_array(img))
         img_array = np.expand_dims(img_array, axis=0)
         return img_array
     except Exception as e:

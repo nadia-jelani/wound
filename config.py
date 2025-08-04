@@ -44,4 +44,8 @@ LOG_FILE = os.getenv('LOG_FILE', str(BASE_DIR / 'logs' / 'wound_analysis.log'))
 # Create necessary directories
 for path in [DATASET_PATH, MODEL_SAVE_PATH, UPLOAD_FOLDER, REPORT_FOLDER, 
              Path(LOG_FILE).parent]:
-    Path(path).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError):
+        # Skip directory creation if we don't have permissions
+        pass

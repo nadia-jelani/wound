@@ -16,31 +16,16 @@ from tensorflow.keras.mixed_precision import set_global_policy
 set_global_policy('mixed_float16')
 
 # === Logging ===
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/Users/nadiajelani/projects/wound-segmentation/train.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Logging is now handled by utils.setup_logging
 
-# === Config ===
-IMG_SIZE = 224
-BATCH_SIZE = 16  # Reduced for Apple M3
-EPOCHS = 30  # Increased for better convergence
-DATASET_PATH = '/Users/nadiajelani/Desktop/wounds-whisperer/wounds/dataset'
-TRAIN_DIR = os.path.join(DATASET_PATH, 'train')
-VAL_DIR = os.path.join(DATASET_PATH, 'validation')
-MODEL_SAVE_PATH = '/Users/nadiajelani/projects/wound-segmentation/models/wound_classifier.h5'
-CHECKPOINT_PATH = '/Users/nadiajelani/projects/wound-segmentation/models/checkpoint_{epoch:02d}.h5'
-CLASS_NAMES = ['non-wound', 'wound']
-EXPECTED_TRAIN_COUNTS = {'non-wound': 8012, 'wound': 13218}
-EXPECTED_VAL_COUNTS = {'non-wound': 2003, 'wound': 3305}
+from config import *
+from utils import setup_logging, ensure_directory
+
+# Setup logging
+logger = setup_logging(LOG_FILE, LOG_LEVEL)
 
 # === Verify Directories ===
-os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
+ensure_directory(MODEL_SAVE_PATH)
 for dir_path in [TRAIN_DIR, VAL_DIR]:
     if not os.path.exists(dir_path):
         logger.error(f"Directory missing: {dir_path}")
@@ -48,6 +33,8 @@ for dir_path in [TRAIN_DIR, VAL_DIR]:
 
 # === Check Dataset Integrity ===
 def check_dataset_integrity(directory, class_names=CLASS_NAMES, expected_counts=None):
+    from utils import validate_image_file, calculate_file_hash
+    
     corrupted_files, duplicates, subdirs, small_files = [], [], [], []
     file_hashes, file_names = {}, set()
     class_counts = {c: 0 for c in class_names}
@@ -57,7 +44,7 @@ def check_dataset_integrity(directory, class_names=CLASS_NAMES, expected_counts=
     for subdir in expected_subdirs:
         if not os.path.exists(subdir):
             logger.warning(f"⚠️ Creating missing subdirectory: {subdir}")
-            os.makedirs(subdir)
+            ensure_directory(subdir)
         else:
             logger.info(f"Found subdirectory: {subdir}")
     
@@ -80,16 +67,18 @@ def check_dataset_integrity(directory, class_names=CLASS_NAMES, expected_counts=
                 if file_name in file_names:
                     duplicates.append((file_path, f"Duplicate name: {file_name}"))
                 file_names.add(file_name)
-                with open(file_path, 'rb') as f:
-                    file_hash = hashlib.md5(f.read()).hexdigest()
+                
+                file_hash = calculate_file_hash(file_path)
                 if file_hash in file_hashes:
                     duplicates.append((file_path, file_hashes[file_hash]))
                 else:
                     file_hashes[file_hash] = file_path
-                with Image.open(file_path) as img:
-                    img.verify()
+                
+                if not validate_image_file(file_path):
+                    logger.error(f"❌ Corrupted file: {file_path}")
+                    corrupted_files.append(file_path)
             except Exception as e:
-                logger.error(f"❌ Corrupted file: {file_path} - {e}")
+                logger.error(f"❌ Error processing file: {file_path} - {e}")
                 corrupted_files.append(file_path)
     
     logger.info(f"Total images in {directory}: {sum(class_counts.values())}")
