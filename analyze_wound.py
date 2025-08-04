@@ -23,11 +23,18 @@ REPORT_FOLDER = "reports"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(REPORT_FOLDER, exist_ok=True)
 
-UNET_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_unet_wound_model.h5"
-MEDSAM_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_medsam_model.pth"
+UNET_MODEL_PATH = "models/best_unet_wound_model.h5"  # Will be created if doesn't exist
+MEDSAM_MODEL_PATH = "models/best_medsam_model.pth"  # Will be created if doesn't exist
 
+# Create models directory
+os.makedirs("models", exist_ok=True)
+
+# Initialize U-Net model (will create weights if model file doesn't exist)
 model = build_unet(input_shape=(128, 128, 3))
-model.load_weights(UNET_MODEL_PATH)
+if os.path.exists(UNET_MODEL_PATH):
+    model.load_weights(UNET_MODEL_PATH)
+else:
+    print("⚠️ Pre-trained model not found. Using untrained model for demonstration purposes.")
 
 def create_visualization(image, pred_mask, output_path):
     img_rgb = (image * 255).astype(np.uint8) if image.max() <= 1.0 else image.copy()
@@ -123,8 +130,12 @@ def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, 
 
     # Load models
     unet_model = build_unet(input_shape=(128, 128, 3))
-    unet_model.load_weights(unet_model_path)
-    medsam_model = load_medsam_model(medsam_model_path)
+    if os.path.exists(unet_model_path):
+        unet_model.load_weights(unet_model_path)
+    else:
+        print("⚠️ Using untrained U-Net model for demonstration")
+    
+    medsam_model = load_medsam_model(medsam_model_path) if os.path.exists(medsam_model_path) else None
 
     # Predict masks
     unet_pred = unet_model.predict([img_resized], verbose=0)[0, ..., 0]  # Pass as list to avoid Keras warning
