@@ -161,75 +161,112 @@ def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, 
 def serve_report(filename):
     return send_from_directory(REPORT_FOLDER, filename)
 
+@app.route("/uploads/<filename>")
+def serve_upload(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+@app.route("/reports/<path:filename>")
+def serve_analysis_report(filename):
+    return send_from_directory(REPORT_FOLDER, filename)
+
 @app.route("/upload", methods=["POST"])
 def upload():
-    # Validate file upload
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-    
-    # Validate file type
-    allowed_extensions = {'png', 'jpg', 'jpeg', 'bmp', 'tiff'}
-    if not file.filename.lower().endswith(tuple('.' + ext for ext in allowed_extensions)):
-        return jsonify({'error': 'Invalid file type. Please upload an image.'}), 400
-    
-    # Validate file size (max 10MB)
-    file.seek(0, 2)  # Seek to end
-    file_size = file.tell()
-    file.seek(0)  # Reset to beginning
-    if file_size > 10 * 1024 * 1024:  # 10MB
-        return jsonify({'error': 'File too large. Maximum size is 10MB.'}), 400
     try:
-        if "image" not in request.files:
-            raise ValueError("No image file provided in the request")
-        file = request.files["image"]
-        name = request.form.get("name", "Unknown")
-        age = request.form.get("age", "Unknown")
-        use_medsam = request.form.get("use_medsam", "false").lower() == "true"
-
-        filename = str(uuid.uuid4()) + ".png"
-        image_path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(image_path)
-
-        # Validate the saved image
-        img_check = cv2.imread(image_path)
-        if img_check is None:
-            raise ValueError(f"Failed to load the uploaded image: {image_path}. Ensure the file is a valid image (e.g., PNG, JPEG).")
-
-        patient_info = {"name": name, "age": age}
-
-        report_path, vis_path = analyze_image(
-            image_path=image_path,
-            unet_model_path=UNET_MODEL_PATH,
-            medsam_model_path=MEDSAM_MODEL_PATH,
-            patient_info=patient_info,
-            output_dir=REPORT_FOLDER
-        )
-
-        return jsonify({
-            "report_url": f"/report/{os.path.basename(report_path)}",
-        })
-    
+        # Validate file upload
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file type
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'bmp', 'tiff'}
+        if not file.filename.lower().endswith(tuple('.' + ext for ext in allowed_extensions)):
+            return jsonify({'error': 'Invalid file type. Please upload an image.'}), 400
+        
+        # Validate file size (max 10MB)
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return jsonify({'error': 'File too large. Maximum size is 10MB.'}), 400
+        
+        # Save uploaded file
+        filename = get_safe_filename(file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = f"{timestamp}_{filename}"
+        file_path = os.path.join(UPLOAD_FOLDER, safe_filename)
+        
+        file.save(file_path)
+        
+        # Analyze the image
+        patient_info = {
+            'name': 'Anonymous',
+            'age': 'Unknown'
+        }
+        
+        # Create output directory for this analysis
+        analysis_id = f"analysis_{timestamp}"
+        output_dir = os.path.join(REPORT_FOLDER, analysis_id)
+        ensure_directory(output_dir)
+        
+        # Perform analysis
+        report_path, vis_path = analyze_image(file_path, UNET_MODEL_PATH, MEDSAM_MODEL_PATH, patient_info, output_dir)
+        
+        # Calculate additional metrics
+        img = cv2.imread(file_path)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_normalized = img_rgb.astype(np.float32) / 255.0
+        
+        # Resize for model input
+        img_resized = cv2.resize(img_normalized, (128, 128))
+        img_input = np.expand_dims(img_resized, axis=0)
+        
+        # Get segmentation mask
+        pred_mask = model.predict(img_input, verbose=0)[0, :, :, 0]
+        pred_mask_bin = (pred_mask > 0.5).astype(np.uint8)
+        
+        # Calculate metrics
+        wound_area_px = np.sum(pred_mask_bin > 0)
+        wound_area_mm2 = wound_area_px * (0.264 ** 2)  # Assuming 0.264 mm per pixel
+        
+        # Determine severity based on area
+        if wound_area_mm2 < 50:
+            severity = "Mild"
+        elif wound_area_mm2 < 200:
+            severity = "Moderate"
+        else:
+            severity = "Severe"
+        
+        # Determine healing potential
+        if severity == "Mild":
+            healing_potential = "High"
+        elif severity == "Moderate":
+            healing_potential = "Medium"
+        else:
+            healing_potential = "Low"
+        
+        # Create response data
+        response_data = {
+            'is_wound': wound_area_px > 100,  # Threshold for wound detection
+            'confidence': float(np.max(pred_mask)),
+            'wound_area_mm2': float(wound_area_mm2),
+            'severity': severity,
+            'healing_potential': healing_potential,
+            'visualization_url': f'/reports/{analysis_id}/wound_vis_{timestamp}.png',
+            'report_url': f'/reports/{analysis_id}/patient_wound_report_{timestamp}.pdf'
+        }
+        
+        return jsonify(response_data)
+        
     except Exception as e:
-        import traceback
-        print("❌ Error during image processing:", str(e))
-        print("Traceback:")
-        print(traceback.format_exc())
-        return jsonify({"error": str(e)}), 500
-    
-    except Exception as e:
-        import traceback
-        print("❌ Error during image processing:", str(e))
-        print("Traceback:")
-        print(traceback.format_exc())
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error processing upload: {str(e)}")
+        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
 
 @app.route("/")
 def index():
-    return render_template("wound-wisperer.html")
+    return render_template("index.html")
 
 @app.route("/health")
 def health_check():
