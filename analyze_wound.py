@@ -15,16 +15,16 @@ import uuid
 from datetime import datetime
 from wound_medsam import build_unet, predict_healing_potential, load_medsam_model, medsam_segment
 
+from config import *
+
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_FOLDER = "uploads"
-REPORT_FOLDER = "reports"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(REPORT_FOLDER, exist_ok=True)
-
-UNET_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_unet_wound_model.h5"
-MEDSAM_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_medsam_model.pth"
+# Validate model files exist
+if not os.path.exists(UNET_MODEL_PATH):
+    raise FileNotFoundError(f"UNet model not found at {UNET_MODEL_PATH}")
+if not os.path.exists(MEDSAM_MODEL_PATH):
+    raise FileNotFoundError(f"MedSAM model not found at {MEDSAM_MODEL_PATH}")
 
 model = build_unet(input_shape=(128, 128, 3))
 model.load_weights(UNET_MODEL_PATH)
@@ -158,8 +158,26 @@ def serve_report(filename):
     return send_from_directory(REPORT_FOLDER, filename)
 
 @app.route("/upload", methods=["POST"])
-@app.route("/upload", methods=["POST"])
 def upload():
+    # Validate file upload
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Validate file type
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'bmp', 'tiff'}
+    if not file.filename.lower().endswith(tuple('.' + ext for ext in allowed_extensions)):
+        return jsonify({'error': 'Invalid file type. Please upload an image.'}), 400
+    
+    # Validate file size (max 10MB)
+    file.seek(0, 2)  # Seek to end
+    file_size = file.tell()
+    file.seek(0)  # Reset to beginning
+    if file_size > 10 * 1024 * 1024:  # 10MB
+        return jsonify({'error': 'File too large. Maximum size is 10MB.'}), 400
     try:
         if "image" not in request.files:
             raise ValueError("No image file provided in the request")
@@ -210,4 +228,4 @@ def index():
     return render_template("wound-wisperer.html")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)
