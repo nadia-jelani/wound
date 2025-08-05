@@ -646,6 +646,54 @@ HTML_TEMPLATE = '''
 def index():
     return render_template_string(HTML_TEMPLATE)
 
+@app.route('/simple')
+def simple():
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>WoundCare AI - Test Page</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; background: #f0f0f0; }
+            .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+            h1 { color: #1e3c72; text-align: center; }
+            .status { background: #e8f5e8; color: #2e7d32; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .info { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🩹 WoundCare AI</h1>
+            <div class="status">
+                <strong>✅ Application is Running Successfully!</strong>
+            </div>
+            <div class="info">
+                <h3>Test Information:</h3>
+                <p><strong>Status:</strong> Application deployed and accessible</p>
+                <p><strong>Time:</strong> ''' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + '''</p>
+                <p><strong>Message:</strong> Your medical wound analysis system is ready!</p>
+            </div>
+            <div class="info">
+                <h3>Available Routes:</h3>
+                <ul>
+                    <li><a href="/">Main Application</a> - Full wound analysis interface</li>
+                    <li><a href="/health">Health Check</a> - API health status</li>
+                    <li><a href="/test">Test Endpoint</a> - Simple test response</li>
+                </ul>
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
+
+@app.route('/test')
+def test():
+    return jsonify({
+        "status": "success",
+        "message": "WoundCare AI is running!",
+        "timestamp": datetime.now().isoformat()
+    })
+
 @app.route('/health')
 def health_check():
     return jsonify({

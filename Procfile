@@ -1,1 +1,1 @@
-web: python railway_app_simple.py
+web: gunicorn railway_app_simple:app
