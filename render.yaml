@@ -3,8 +3,8 @@ services:
     name: woundcare-ai
     env: python
     plan: free
-    buildCommand: pip install -r requirements_render.txt
-    startCommand: gunicorn render_app:app
+    buildCommand: echo "No build required - using built-in Python modules"
+    startCommand: python render_simple.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.16
