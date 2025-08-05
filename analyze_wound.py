@@ -5,7 +5,6 @@ from flask import render_template
 import os
 import cv2
 import numpy as np
-import tensorflow as tf
 import matplotlib.pyplot as plt
 from fpdf import FPDF
 import time
@@ -13,7 +12,7 @@ import json
 import base64
 import uuid
 from datetime import datetime
-from wound_medsam import build_unet, predict_healing_potential, load_medsam_model, medsam_segment
+from wound_simclr_cnn import build_simclr_cnn_model, predict_healing_potential, create_cnn_encoder_features, simclr_contrastive_enhancement, cnn_decoder_segmentation
 
 app = Flask(__name__)
 CORS(app)
@@ -23,11 +22,12 @@ REPORT_FOLDER = "reports"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(REPORT_FOLDER, exist_ok=True)
 
-UNET_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_unet_wound_model.h5"
-MEDSAM_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_medsam_model.pth"
+# Create models directory
+os.makedirs("models", exist_ok=True)
 
-model = build_unet(input_shape=(128, 128, 3))
-model.load_weights(UNET_MODEL_PATH)
+# Initialize SimCLR-CNN Encoder-Decoder model
+print("🚀 Initializing SimCLR-CNN Encoder-Decoder Model...")
+model = build_simclr_cnn_model(input_shape=(128, 128, 3))
 
 def create_visualization(image, pred_mask, output_path):
     img_rgb = (image * 255).astype(np.uint8) if image.max() <= 1.0 else image.copy()
@@ -100,7 +100,7 @@ def generate_patient_report(image, pred_mask, patient_info, severity, healing_po
     pdf.output(report_path)
     return report_path, vis_path
 
-def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, output_dir='analysis_output'):
+def analyze_image(image_path, patient_info, output_dir='analysis_output'):
     os.makedirs(output_dir, exist_ok=True)
 
     # Load image
@@ -116,27 +116,23 @@ def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, 
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.0
 
     # Explicitly resize for model input
-    img_resized = tf.image.resize(img_rgb, (128, 128), method='bilinear')
-    img_resized = tf.expand_dims(img_resized, 0)  # Add batch dimension
+    img_resized = cv2.resize(img_rgb, (128, 128))
+    img_resized = np.expand_dims(img_resized, 0)  # Add batch dimension
     if img_resized.shape != (1, 128, 128, 3):
         raise ValueError(f"Resized image shape {img_resized.shape} does not match expected shape (1, 128, 128, 3)")
 
-    # Load models
-    unet_model = build_unet(input_shape=(128, 128, 3))
-    unet_model.load_weights(unet_model_path)
-    medsam_model = load_medsam_model(medsam_model_path)
-
-    # Predict masks
-    unet_pred = unet_model.predict([img_resized], verbose=0)[0, ..., 0]  # Pass as list to avoid Keras warning
-    unet_mask = (unet_pred > 0.5).astype(np.uint8)
-
-    medsam_mask = medsam_segment(img_rgb, medsam_model)
-    medsam_mask = tf.image.resize(medsam_mask[..., None], (128, 128), method='nearest').numpy().squeeze().astype(np.uint8)
-
-    combined_mask = np.logical_or(unet_mask, medsam_mask).astype(np.uint8)
-
-    # Resize mask back to original size
-    pred_mask_resized = tf.image.resize(combined_mask[..., None], img_rgb.shape[:2], method='nearest').numpy().squeeze().astype(np.uint8)
+    print("🧠 Starting SimCLR-CNN Encoder-Decoder Analysis...")
+    
+    # Step 1: CNN Encoder - Extract hierarchical features
+    cnn_features = create_cnn_encoder_features(img_rgb)
+    
+    # Step 2: SimCLR - Apply contrastive learning enhancement
+    simclr_enhanced = simclr_contrastive_enhancement(cnn_features, img_rgb)
+    
+    # Step 3: CNN Decoder - Generate final segmentation
+    pred_mask_resized = cnn_decoder_segmentation(simclr_enhanced, img_rgb.shape[:2])
+    
+    print("✅ SimCLR-CNN pipeline completed successfully!")
 
     # Clinical analysis
     severity, healing_potential, wound_area_mm2 = predict_healing_potential(pred_mask_resized, img_rgb)
@@ -166,7 +162,7 @@ def upload():
         file = request.files["image"]
         name = request.form.get("name", "Unknown")
         age = request.form.get("age", "Unknown")
-        use_medsam = request.form.get("use_medsam", "false").lower() == "true"
+        # Using SimCLR-CNN Encoder-Decoder architecture
 
         filename = str(uuid.uuid4()) + ".png"
         image_path = os.path.join(UPLOAD_FOLDER, filename)
@@ -181,8 +177,6 @@ def upload():
 
         report_path, vis_path = analyze_image(
             image_path=image_path,
-            unet_model_path=UNET_MODEL_PATH,
-            medsam_model_path=MEDSAM_MODEL_PATH,
             patient_info=patient_info,
             output_dir=REPORT_FOLDER
         )
