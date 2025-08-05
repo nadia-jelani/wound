@@ -12,7 +12,7 @@ import json
 import base64
 import uuid
 from datetime import datetime
-from wound_medsam import build_unet, predict_healing_potential, load_medsam_model, medsam_segment
+from wound_medsam import build_simclr_cnn_model, predict_healing_potential, create_cnn_encoder_features, simclr_contrastive_enhancement, cnn_decoder_segmentation
 
 app = Flask(__name__)
 CORS(app)
@@ -22,18 +22,12 @@ REPORT_FOLDER = "reports"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(REPORT_FOLDER, exist_ok=True)
 
-UNET_MODEL_PATH = "models/best_unet_wound_model.h5"  # Will be created if doesn't exist
-MEDSAM_MODEL_PATH = "models/best_medsam_model.pth"  # Will be created if doesn't exist
-
 # Create models directory
 os.makedirs("models", exist_ok=True)
 
-# Initialize U-Net model (will create weights if model file doesn't exist)
-model = build_unet(input_shape=(128, 128, 3))
-if os.path.exists(UNET_MODEL_PATH):
-    model.load_weights(UNET_MODEL_PATH)
-else:
-    print("⚠️ Pre-trained model not found. Using untrained model for demonstration purposes.")
+# Initialize SimCLR-CNN Encoder-Decoder model
+print("🚀 Initializing SimCLR-CNN Encoder-Decoder Model...")
+model = build_simclr_cnn_model(input_shape=(128, 128, 3))
 
 def create_visualization(image, pred_mask, output_path):
     img_rgb = (image * 255).astype(np.uint8) if image.max() <= 1.0 else image.copy()
@@ -106,7 +100,7 @@ def generate_patient_report(image, pred_mask, patient_info, severity, healing_po
     pdf.output(report_path)
     return report_path, vis_path
 
-def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, output_dir='analysis_output'):
+def analyze_image(image_path, patient_info, output_dir='analysis_output'):
     os.makedirs(output_dir, exist_ok=True)
 
     # Load image
@@ -127,26 +121,18 @@ def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, 
     if img_resized.shape != (1, 128, 128, 3):
         raise ValueError(f"Resized image shape {img_resized.shape} does not match expected shape (1, 128, 128, 3)")
 
-    # Load models
-    unet_model = build_unet(input_shape=(128, 128, 3))
-    if os.path.exists(unet_model_path):
-        unet_model.load_weights(unet_model_path)
-    else:
-        print("⚠️ Using untrained U-Net model for demonstration")
+    print("🧠 Starting SimCLR-CNN Encoder-Decoder Analysis...")
     
-    medsam_model = load_medsam_model(medsam_model_path) if os.path.exists(medsam_model_path) else None
-
-    # Predict masks
-    unet_pred = unet_model.predict([img_resized], verbose=0)[0, ..., 0]  # Pass as list to avoid Keras warning
-    unet_mask = (unet_pred > 0.5).astype(np.uint8)
-
-    medsam_mask = medsam_segment(img_rgb, medsam_model)
-    medsam_mask = cv2.resize(medsam_mask, (128, 128)).astype(np.uint8)
-
-    combined_mask = np.logical_or(unet_mask, medsam_mask).astype(np.uint8)
-
-    # Resize mask back to original size
-    pred_mask_resized = cv2.resize(combined_mask, img_rgb.shape[:2][::-1]).astype(np.uint8)
+    # Step 1: CNN Encoder - Extract hierarchical features
+    cnn_features = create_cnn_encoder_features(img_rgb)
+    
+    # Step 2: SimCLR - Apply contrastive learning enhancement
+    simclr_enhanced = simclr_contrastive_enhancement(cnn_features, img_rgb)
+    
+    # Step 3: CNN Decoder - Generate final segmentation
+    pred_mask_resized = cnn_decoder_segmentation(simclr_enhanced, img_rgb.shape[:2])
+    
+    print("✅ SimCLR-CNN pipeline completed successfully!")
 
     # Clinical analysis
     severity, healing_potential, wound_area_mm2 = predict_healing_potential(pred_mask_resized, img_rgb)
