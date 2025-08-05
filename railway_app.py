@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""
+Railway-optimized Wound Analysis Web Application
+"""
+import os
+import json
+import time
+import random
+from datetime import datetime
+from flask import Flask, request, jsonify, render_template_string
+
+app = Flask(__name__)
+
+# HTML template embedded in the app
+HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -401,3 +416,56 @@
     </script>
 </body>
 </html>
+'''
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "mode": "railway_demo",
+        "message": "Railway-optimized demo mode"
+    })
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    try:
+        # Simulate file processing
+        time.sleep(1)
+
+        # Generate random analysis results
+        wound_area = random.uniform(10, 500)
+
+        if wound_area < 50:
+            severity = "Mild"
+            healing_potential = "High"
+        elif wound_area < 200:
+            severity = "Moderate"
+            healing_potential = "Medium"
+        else:
+            severity = "Severe"
+            healing_potential = "Low"
+
+        confidence = random.uniform(0.7, 0.95)
+        is_wound = wound_area > 20
+
+        return jsonify({
+            'is_wound': is_wound,
+            'confidence': round(confidence, 3),
+            'wound_area_mm2': round(wound_area, 2),
+            'severity': severity,
+            'healing_potential': healing_potential,
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
