@@ -6,4 +6,5 @@ matplotlib
 fpdf2
 Pillow
 scikit-image
+scikit-learn
 gunicorn
