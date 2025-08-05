@@ -12,7 +12,7 @@ import json
 import base64
 import uuid
 from datetime import datetime
-from wound_medsam import build_simclr_cnn_model, predict_healing_potential, create_cnn_encoder_features, simclr_contrastive_enhancement, cnn_decoder_segmentation
+from wound_simclr_cnn import build_simclr_cnn_model, predict_healing_potential, create_cnn_encoder_features, simclr_contrastive_enhancement, cnn_decoder_segmentation
 
 app = Flask(__name__)
 CORS(app)
@@ -162,7 +162,7 @@ def upload():
         file = request.files["image"]
         name = request.form.get("name", "Unknown")
         age = request.form.get("age", "Unknown")
-        use_medsam = request.form.get("use_medsam", "false").lower() == "true"
+        # Using SimCLR-CNN Encoder-Decoder architecture
 
         filename = str(uuid.uuid4()) + ".png"
         image_path = os.path.join(UPLOAD_FOLDER, filename)
