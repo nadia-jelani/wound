@@ -177,8 +177,6 @@ def upload():
 
         report_path, vis_path = analyze_image(
             image_path=image_path,
-            unet_model_path=UNET_MODEL_PATH,
-            medsam_model_path=MEDSAM_MODEL_PATH,
             patient_info=patient_info,
             output_dir=REPORT_FOLDER
         )
