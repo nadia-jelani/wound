@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wound Analysis Interface</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Wound Analysis System</h1>
+        <p>Upload an image to analyze wound progression and characteristics.</p>
+        
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <input type="file" id="fileInput" accept="image/*" style="display: none;" onchange="handleFileSelect(this)">
+            <p>Click here to upload an image</p>
+            <p style="color: #666; font-size: 14px;">Supported formats: JPG, PNG, GIF</p>
+        </div>
+        
+        <button onclick="analyzeImage()">Analyze Wound</button>
+        
+        <div id="result" class="result">
+            <h3>Analysis Results:</h3>
+            <p id="resultText">Analysis will appear here...</p>
+        </div>
+    </div>
+
+    <script>
+        function handleFileSelect(input) {
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                document.querySelector('.upload-area p').textContent = `Selected: ${file.name}`;
+            }
+        }
+
+        function analyzeImage() {
+            const fileInput = document.getElementById('fileInput');
+            if (!fileInput.files || !fileInput.files[0]) {
+                alert('Please select an image first!');
+                return;
+            }
+
+            // Simulate analysis (in real implementation, this would call your Python backend)
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('resultText').innerHTML = `
+                <strong>Mock Analysis Results:</strong><br>
+                • Wound type: Chronic ulcer<br>
+                • Healing stage: Proliferation<br>
+                • Recommended treatment: Continue current therapy<br>
+                • Next assessment: 2 weeks<br><br>
+                <em>Note: This is a demo interface. Connect to your Python backend for real analysis.</em>
+            `;
+        }
+    </script>
+</body>
+</html>
