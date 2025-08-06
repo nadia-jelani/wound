@@ -8,17 +8,19 @@ import logging
 import matplotlib.pyplot as plt
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
+# Logging is now handled by utils.setup_logging
+
+from config import *
+from utils import setup_logging, ensure_directory
+
+# Setup logging
+logger = setup_logging(LOG_FILE, LOG_LEVEL)
 
 # Configuration
-IMG_HEIGHT, IMG_WIDTH = 224, 224  # Matches wound_checker.py
-BATCH_SIZE = 32
-EPOCHS = 20
-TRAIN_DIR = 'train'
-VALIDATION_DIR = 'validation'
-MODEL_PATH = 'wound_classifier.h5'
-CLASS_NAMES = ['non_wound', 'wound']  # 0: non_wound, 1: wound
+IMG_HEIGHT, IMG_WIDTH = IMG_SIZE, IMG_SIZE
+TRAIN_DIR = os.path.join(DATASET_PATH, 'train')
+VALIDATION_DIR = os.path.join(DATASET_PATH, 'validation')
+MODEL_PATH = CLASSIFIER_MODEL_PATH
 
 # Data augmentation and preprocessing
 train_datagen = ImageDataGenerator(
@@ -94,6 +96,13 @@ try:
                 monitor='val_loss',
                 patience=5,
                 restore_best_weights=True,
+                verbose=1
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.2,
+                patience=3,
+                min_lr=1e-7,
                 verbose=1
             )
         ]

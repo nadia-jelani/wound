@@ -15,21 +15,24 @@ import uuid
 from datetime import datetime
 from wound_medsam import build_unet, predict_healing_potential, load_medsam_model, medsam_segment
 
+from config import *
+
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_FOLDER = "uploads"
-REPORT_FOLDER = "reports"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(REPORT_FOLDER, exist_ok=True)
-
-UNET_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_unet_wound_model.h5"
-MEDSAM_MODEL_PATH = "/Users/nadiajelani/projects/wound-segmentation/models/best_medsam_model.pth"
+# Validate model files exist
+if not os.path.exists(UNET_MODEL_PATH):
+    raise FileNotFoundError(f"UNet model not found at {UNET_MODEL_PATH}")
+if not os.path.exists(MEDSAM_MODEL_PATH):
+    raise FileNotFoundError(f"MedSAM model not found at {MEDSAM_MODEL_PATH}")
 
 model = build_unet(input_shape=(128, 128, 3))
 model.load_weights(UNET_MODEL_PATH)
 
-def create_visualization(image, pred_mask, output_path):
+from utils import create_visualization, calculate_wound_metrics, ensure_directory
+
+def create_visualization_wrapper(image, pred_mask, output_path):
+    """Wrapper for the original create_visualization function"""
     img_rgb = (image * 255).astype(np.uint8) if image.max() <= 1.0 else image.copy()
     contours, _ = cv2.findContours(pred_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contour_img = img_rgb.copy()
@@ -53,13 +56,14 @@ def create_visualization(image, pred_mask, output_path):
     plt.close()
 
 def generate_patient_report(image, pred_mask, patient_info, severity, healing_potential, wound_area_mm2, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
+    ensure_directory(output_dir)
     # Check write permissions
     if not os.access(output_dir, os.W_OK):
         raise PermissionError(f"No write permissions for output directory: {output_dir}")
 
-    wound_area_px = np.sum(pred_mask > 0)
-    estimated_diameter = np.sqrt(wound_area_px / np.pi) * 0.264
+    # Calculate wound metrics using utility function
+    metrics = calculate_wound_metrics(pred_mask, scale_mm_per_pixel=0.264)
+    estimated_diameter = metrics['diameter_mm']
     wound_description = f"""
     Wound Description:
     - Size: The wound is about {estimated_diameter:.2f} millimeters wide, roughly {'smaller than a US dime' if estimated_diameter < 18 else 'about the size of a US dime' if estimated_diameter < 22 else 'larger than a US dime'}.
@@ -91,7 +95,7 @@ def generate_patient_report(image, pred_mask, patient_info, severity, healing_po
         pdf.multi_cell(0, 10, line.strip().encode('latin-1', 'replace').decode('latin-1'))
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     vis_path = os.path.join(output_dir, f"wound_vis_{timestamp}.png")
-    create_visualization(image, pred_mask, vis_path)
+    create_visualization_wrapper(image, pred_mask, vis_path)
     pdf.ln(10)
     pdf.image(vis_path, x=10, w=190)
     pdf.ln(10)
@@ -101,7 +105,7 @@ def generate_patient_report(image, pred_mask, patient_info, severity, healing_po
     return report_path, vis_path
 
 def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, output_dir='analysis_output'):
-    os.makedirs(output_dir, exist_ok=True)
+    ensure_directory(output_dir)
 
     # Load image
     img = cv2.imread(image_path)
@@ -157,57 +161,124 @@ def analyze_image(image_path, unet_model_path, medsam_model_path, patient_info, 
 def serve_report(filename):
     return send_from_directory(REPORT_FOLDER, filename)
 
-@app.route("/upload", methods=["POST"])
+@app.route("/uploads/<filename>")
+def serve_upload(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+@app.route("/reports/<path:filename>")
+def serve_analysis_report(filename):
+    return send_from_directory(REPORT_FOLDER, filename)
+
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
-        if "image" not in request.files:
-            raise ValueError("No image file provided in the request")
-        file = request.files["image"]
-        name = request.form.get("name", "Unknown")
-        age = request.form.get("age", "Unknown")
-        use_medsam = request.form.get("use_medsam", "false").lower() == "true"
-
-        filename = str(uuid.uuid4()) + ".png"
-        image_path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(image_path)
-
-        # Validate the saved image
-        img_check = cv2.imread(image_path)
-        if img_check is None:
-            raise ValueError(f"Failed to load the uploaded image: {image_path}. Ensure the file is a valid image (e.g., PNG, JPEG).")
-
-        patient_info = {"name": name, "age": age}
-
-        report_path, vis_path = analyze_image(
-            image_path=image_path,
-            unet_model_path=UNET_MODEL_PATH,
-            medsam_model_path=MEDSAM_MODEL_PATH,
-            patient_info=patient_info,
-            output_dir=REPORT_FOLDER
-        )
-
-        return jsonify({
-            "report_url": f"/report/{os.path.basename(report_path)}",
-        })
-    
+        # Validate file upload
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file type
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'bmp', 'tiff'}
+        if not file.filename.lower().endswith(tuple('.' + ext for ext in allowed_extensions)):
+            return jsonify({'error': 'Invalid file type. Please upload an image.'}), 400
+        
+        # Validate file size (max 10MB)
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return jsonify({'error': 'File too large. Maximum size is 10MB.'}), 400
+        
+        # Save uploaded file
+        filename = get_safe_filename(file.filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = f"{timestamp}_{filename}"
+        file_path = os.path.join(UPLOAD_FOLDER, safe_filename)
+        
+        file.save(file_path)
+        
+        # Analyze the image
+        patient_info = {
+            'name': 'Anonymous',
+            'age': 'Unknown'
+        }
+        
+        # Create output directory for this analysis
+        analysis_id = f"analysis_{timestamp}"
+        output_dir = os.path.join(REPORT_FOLDER, analysis_id)
+        ensure_directory(output_dir)
+        
+        # Perform analysis
+        report_path, vis_path = analyze_image(file_path, UNET_MODEL_PATH, MEDSAM_MODEL_PATH, patient_info, output_dir)
+        
+        # Calculate additional metrics
+        img = cv2.imread(file_path)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_normalized = img_rgb.astype(np.float32) / 255.0
+        
+        # Resize for model input
+        img_resized = cv2.resize(img_normalized, (128, 128))
+        img_input = np.expand_dims(img_resized, axis=0)
+        
+        # Get segmentation mask
+        pred_mask = model.predict(img_input, verbose=0)[0, :, :, 0]
+        pred_mask_bin = (pred_mask > 0.5).astype(np.uint8)
+        
+        # Calculate metrics
+        wound_area_px = np.sum(pred_mask_bin > 0)
+        wound_area_mm2 = wound_area_px * (0.264 ** 2)  # Assuming 0.264 mm per pixel
+        
+        # Determine severity based on area
+        if wound_area_mm2 < 50:
+            severity = "Mild"
+        elif wound_area_mm2 < 200:
+            severity = "Moderate"
+        else:
+            severity = "Severe"
+        
+        # Determine healing potential
+        if severity == "Mild":
+            healing_potential = "High"
+        elif severity == "Moderate":
+            healing_potential = "Medium"
+        else:
+            healing_potential = "Low"
+        
+        # Create response data
+        response_data = {
+            'is_wound': wound_area_px > 100,  # Threshold for wound detection
+            'confidence': float(np.max(pred_mask)),
+            'wound_area_mm2': float(wound_area_mm2),
+            'severity': severity,
+            'healing_potential': healing_potential,
+            'visualization_url': f'/reports/{analysis_id}/wound_vis_{timestamp}.png',
+            'report_url': f'/reports/{analysis_id}/patient_wound_report_{timestamp}.pdf'
+        }
+        
+        return jsonify(response_data)
+        
     except Exception as e:
-        import traceback
-        print("❌ Error during image processing:", str(e))
-        print("Traceback:")
-        print(traceback.format_exc())
-        return jsonify({"error": str(e)}), 500
-    
-    except Exception as e:
-        import traceback
-        print("❌ Error during image processing:", str(e))
-        print("Traceback:")
-        print(traceback.format_exc())
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error processing upload: {str(e)}")
+        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
 
 @app.route("/")
 def index():
-    return render_template("wound-wisperer.html")
+    return render_template("index.html")
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "models_loaded": {
+            "unet": os.path.exists(UNET_MODEL_PATH),
+            "medsam": os.path.exists(MEDSAM_MODEL_PATH)
+        }
+    })
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)

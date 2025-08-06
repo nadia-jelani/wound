@@ -14,23 +14,18 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 
+from config import *
+from utils import setup_logging, ensure_directory, normalize_image, resize_image
+
 # -------- Setup Logging --------
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s: %(message)s',
-    handlers=[
-        logging.FileHandler("wound_progress.log"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging(LOG_FILE, LOG_LEVEL)
 
 # -------- Settings --------
-IMG_SIZE = (128, 128)
-segmentation_model_path = "/Users/nadiajelani/projects/wound-segmentation/models/simclr_unet_patch_wound.keras"  # use your best model!
-input_image_path = "/Users/nadiajelani/projects/wound-segmentation/wound_progress_report/original_image.jpg"
-report_dir = "/Users/nadiajelani/projects/wound-segmentation/wound_progress_report"
-os.makedirs(report_dir, exist_ok=True)
+IMG_SIZE = SEGMENTATION_IMG_SIZE
+segmentation_model_path = os.path.join(MODEL_SAVE_PATH, "simclr_unet_patch_wound.keras")
+input_image_path = os.path.join(REPORT_FOLDER, "original_image.jpg")
+report_dir = REPORT_FOLDER
+ensure_directory(report_dir)
 csv_report_path = os.path.join(report_dir, "report.csv")
 pdf_report_path = os.path.join(report_dir, "wound_report.pdf")
 mask_path = os.path.join(report_dir, "simclr_mask.png")
@@ -77,7 +72,7 @@ if original is None:
     raise ValueError(f"Could not read image: {input_image_path}")
 
 img = load_img(input_image_path, target_size=IMG_SIZE)
-img_array = img_to_array(img) / 255.0
+img_array = normalize_image(img_to_array(img))
 img_input = np.expand_dims(img_array, axis=0)
 
 # -------- Predict Segmentation Mask --------
